@@ -92,7 +92,7 @@ stages:
 
   - ${{ each testEnv in parameters.testEnvironments }}:
     - stage: DeployTest_${{ testEnv.name }}
-      displayName: ${{ testEnv.displayName }}
+      displayName: "${{ testEnv.displayName }}"
       dependsOn: Build
       condition: or(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/trunk'))
       jobs:
@@ -102,7 +102,7 @@ stages:
             name: ${{ testEnv.environment }}
             resourceType: VirtualMachine
           variables:
-            - group: ${{ testEnv.variableGroup }}
+            - group: "${{ testEnv.variableGroup }}"
           strategy:
             rolling:
               maxParallel: ${{ parameters.maxParallel }}
