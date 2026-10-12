@@ -1,0 +1,71 @@
+# ============================================================
+# templates/steps/deploy-laravel.yml
+# Deploy on a Linux VM Environment agent: prepare config, run script.
+# No SSH — the deployment job already runs on the target node.
+# ============================================================
+
+parameters:
+  - name: appName
+    type: string
+  - name: serverAppRoot
+    type: string
+  - name: serverPublicRoot
+    type: string
+  - name: serverTempRoot
+    type: string
+  - name: serverBackupPath
+    type: string
+  - name: cacheRoutes
+    type: boolean
+  - name: runMigrations
+    type: boolean
+  - name: artifactFolder
+    type: string
+
+steps:
+
+  - checkout: templates
+    path: laravel-pipeline-templates
+    displayName: 'Checkout pipeline templates'
+
+  - template: prepare-deploy-config.yml
+    parameters:
+      appName: ${{ parameters.appName }}
+      artifactFolder: ${{ parameters.artifactFolder }}
+
+  - script: |
+      set -Eeuo pipefail
+
+      echo "Deploy agent: $(whoami) on $(hostname); umask=$(umask)"
+
+      ARCHIVE_PATH="$(laravelDeployArchivePath)"
+      CONFIG_DIR="$(laravelDeployConfigDir)"
+      DEPLOY_SCRIPT="$(Pipeline.Workspace)/laravel-pipeline-templates/scripts/deploy-laravel.sh"
+
+      if [ ! -f "$ARCHIVE_PATH" ]; then
+        echo "ERROR: Archive not found at ${ARCHIVE_PATH}"
+        exit 1
+      fi
+
+      if [ ! -f "$DEPLOY_SCRIPT" ]; then
+        echo "ERROR: deploy-laravel.sh not found at ${DEPLOY_SCRIPT}"
+        exit 1
+      fi
+
+      chmod +x "$DEPLOY_SCRIPT"
+
+      CACHE_ROUTES="${{ parameters.cacheRoutes }}"
+      RUN_MIGRATIONS="${{ parameters.runMigrations }}"
+
+      "$DEPLOY_SCRIPT" \
+        "${{ parameters.appName }}" \
+        "${{ parameters.serverAppRoot }}" \
+        "${{ parameters.serverPublicRoot }}" \
+        "${{ parameters.serverTempRoot }}" \
+        "${{ parameters.serverBackupPath }}" \
+        "$ARCHIVE_PATH" \
+        "${CONFIG_DIR}/.env" \
+        "${CONFIG_DIR}/public/index.php" \
+        "$CACHE_ROUTES" \
+        "$RUN_MIGRATIONS"
+    displayName: 'Run local deploy script'

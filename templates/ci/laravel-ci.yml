@@ -1,0 +1,124 @@
+# ============================================================
+# templates/ci/laravel-ci.yml
+# CI pipeline template for Laravel applications.
+#
+# Stages:
+#   Build         — hosted ubuntu-latest, no variable groups
+#   DeployTest_*  — one stage per testEnvironments (PR or trunk)
+#                   rolling deploy to VirtualMachine Environment resources
+# ============================================================
+
+parameters:
+
+  - name: appName
+    type: string
+
+  - name: testEnvironments
+    type: object
+    default: []
+
+  - name: phpVersion
+    type: string
+    default: '8.3'
+  - name: nodeVersion
+    type: string
+    default: '24.x'
+  - name: npmVersion
+    type: string
+    default: '11.16.0'
+  - name: runComposer
+    type: boolean
+    default: true
+  - name: runNpm
+    type: boolean
+    default: true
+  - name: npmScript
+    type: string
+    default: 'production'
+  - name: buildSteps
+    type: stepList
+    default: []
+
+  - name: serverAppRoot
+    type: string
+  - name: serverPublicRoot
+    type: string
+  - name: serverTempRoot
+    type: string
+  - name: serverBackupPath
+    type: string
+
+  - name: cacheRoutes
+    type: boolean
+    default: true
+  - name: runMigrations
+    type: boolean
+    default: false
+
+  # Rolling visits each VM resource in the Environment in batches of this size.
+  - name: maxParallel
+    type: number
+    default: 1
+
+variables:
+  npm_config_cache: $(Pipeline.Workspace)/.npm
+  COMPOSER_CACHE_DIR: $(Pipeline.Workspace)/.composer
+
+stages:
+
+  - stage: Build
+    displayName: 'Build'
+    jobs:
+      - job: BuildApp
+        displayName: 'Build Application'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - template: ../steps/build-laravel.yml
+            parameters:
+              phpVersion: ${{ parameters.phpVersion }}
+              nodeVersion: ${{ parameters.nodeVersion }}
+              npmVersion: ${{ parameters.npmVersion }}
+              runComposer: ${{ parameters.runComposer }}
+              runNpm: ${{ parameters.runNpm }}
+              npmScript: ${{ parameters.npmScript }}
+
+          - ${{ each step in parameters.buildSteps }}:
+            - ${{ step }}
+
+          - template: ../steps/publish-laravel-artifact.yml
+            parameters:
+              appName: ${{ parameters.appName }}
+
+  - ${{ each testEnv in parameters.testEnvironments }}:
+    - stage: DeployTest_${{ testEnv.name }}
+      displayName: ${{ testEnv.displayName }}
+      dependsOn: Build
+      condition: or(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/trunk'))
+      jobs:
+        - deployment: ${{ testEnv.name }}
+          displayName: Deploy
+          environment:
+            name: ${{ testEnv.environment }}
+            resourceType: VirtualMachine
+          variables:
+            - group: ${{ testEnv.variableGroup }}
+          strategy:
+            rolling:
+              maxParallel: ${{ parameters.maxParallel }}
+              deploy:
+                steps:
+                  - download: none
+                  - download: current
+                    artifact: '${{ parameters.appName }}'
+                    displayName: 'Download Artifact'
+                  - template: ../steps/deploy-laravel.yml
+                    parameters:
+                      appName: ${{ parameters.appName }}
+                      serverAppRoot: ${{ parameters.serverAppRoot }}
+                      serverPublicRoot: ${{ parameters.serverPublicRoot }}
+                      serverTempRoot: ${{ parameters.serverTempRoot }}
+                      serverBackupPath: ${{ parameters.serverBackupPath }}
+                      cacheRoutes: ${{ parameters.cacheRoutes }}
+                      runMigrations: ${{ parameters.runMigrations }}
+                      artifactFolder: '$(Pipeline.Workspace)/${{ parameters.appName }}'

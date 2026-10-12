@@ -1,0 +1,53 @@
+# ============================================================
+# templates/steps/publish-laravel-artifact.yml
+# Stages deploy files, creates tar.gz, publishes pipeline artifact.
+# Filled .env is excluded; .env.azuredevops remains in the archive.
+# ============================================================
+
+parameters:
+  - name: appName
+    type: string
+
+steps:
+
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: '$(Build.SourcesDirectory)'
+      Contents: |
+        **
+        !.git/**
+        !.gitignore
+        !.gitattributes
+        !node_modules/**
+        !/.env
+        !bootstrap/cache/*.php
+        !azure-pipelines*.yml
+      TargetFolder: '$(Build.ArtifactStagingDirectory)/stage'
+    displayName: 'Stage Application Files'
+
+  - script: |
+      set -e
+      STAGE="$(Build.ArtifactStagingDirectory)/stage"
+      if [ ! -f "$STAGE/.env.azuredevops" ]; then
+        echo "ERROR: .env.azuredevops missing from staged files"
+        exit 1
+      fi
+      echo ".env.azuredevops present in stage"
+    displayName: 'Verify env template in stage'
+
+  - script: |
+      set -e
+      ARCHIVE_NAME="${{ parameters.appName }}_$(Build.BuildId).tar.gz"
+      OUT_DIR="$(Build.ArtifactStagingDirectory)/${{ parameters.appName }}"
+      mkdir -p "$OUT_DIR"
+      tar -czf "$OUT_DIR/$ARCHIVE_NAME" -C "$(Build.ArtifactStagingDirectory)/stage" .
+      echo "Created $ARCHIVE_NAME"
+      ls -la "$OUT_DIR"
+    displayName: 'Create Deployment Archive'
+
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/${{ parameters.appName }}'
+      artifact: '${{ parameters.appName }}'
+      publishLocation: 'pipeline'
+    displayName: 'Publish Artifact'

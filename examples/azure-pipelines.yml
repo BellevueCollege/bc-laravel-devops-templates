@@ -1,0 +1,54 @@
+# ============================================================
+# EXAMPLE: azure-pipelines.yml for a Laravel application
+# Copy to your app repo root and fill in the values below.
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - trunk
+  tags:
+    include:
+      - 'v*'
+  paths:
+    exclude:
+      - azure-pipelines.yml
+      - azure-pipelines-release.yml
+
+pr:
+  branches:
+    include:
+      - trunk
+      - release-*
+      - hotfix-*
+
+resources:
+  repositories:
+    - repository: templates
+      type: github
+      name: BellevueCollege/bc-laravel-devops-templates
+      endpoint: github-service-connection
+      ref: refs/heads/trunk
+
+extends:
+  template: templates/ci/laravel-ci.yml@templates
+  parameters:
+    appName: 'my-laravel-app'
+
+    phpVersion: '8.3'
+    npmScript: 'production'
+
+    serverAppRoot: '/var/www/nonpub/my-laravel-app'
+    serverPublicRoot: '/var/www/html/my-laravel-app'
+    serverTempRoot: '/var/www/nonpub/TEMP'
+    serverBackupPath: '/var/www/nonpub/backups/my-laravel-app'
+
+    # runMigrations: true
+    # cacheRoutes: false
+    # maxParallel: 1
+
+    testEnvironments:
+      - name: ApacheTestC
+        displayName: 'Apache: Test'
+        environment: ApacheTest-C
+        variableGroup: 'REPLACE — Library group name'

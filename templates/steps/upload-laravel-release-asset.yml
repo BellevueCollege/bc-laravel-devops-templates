@@ -1,0 +1,72 @@
+# ============================================================
+# templates/steps/upload-laravel-release-asset.yml
+# Uploads the build tar.gz to an existing GitHub Release.
+# GITHUB_PAT must be set as a secret pipeline variable.
+# ============================================================
+
+parameters:
+  - name: appName
+    type: string
+  - name: githubOrg
+    type: string
+  - name: githubRepo
+    type: string
+  - name: artifactFolder
+    type: string
+
+steps:
+
+  - script: |
+      set -e
+
+      ARCHIVE_PATH=$(find "${{ parameters.artifactFolder }}" -maxdepth 1 -name '${{ parameters.appName }}_*.tar.gz' | head -1)
+      if [ -z "$ARCHIVE_PATH" ]; then
+        echo "ERROR: No ${{ parameters.appName }}_*.tar.gz in ${{ parameters.artifactFolder }}"
+        ls -la "${{ parameters.artifactFolder }}"
+        exit 1
+      fi
+      ASSET_FILE=$(basename "$ARCHIVE_PATH")
+
+      if [ -z "$RELEASE_TAG" ]; then
+        echo "ERROR: releaseTag is empty. Ensure this run was triggered by a CI build on refs/tags/v*."
+        exit 1
+      fi
+
+      echo "Uploading ${ASSET_FILE} to GitHub Release ${RELEASE_TAG}..."
+
+      RELEASE_ID=$(curl -sf \
+        -H "Authorization: token ${GITHUB_PAT}" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/repos/${{ parameters.githubOrg }}/${{ parameters.githubRepo }}/releases/tags/${RELEASE_TAG}" \
+        | jq -r '.id')
+
+      if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+        echo "ERROR: GitHub Release not found for tag ${RELEASE_TAG}"
+        exit 1
+      fi
+
+      EXISTING_ASSET_ID=$(curl -sf \
+        -H "Authorization: token ${GITHUB_PAT}" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/repos/${{ parameters.githubOrg }}/${{ parameters.githubRepo }}/releases/${RELEASE_ID}/assets" \
+        | jq -r --arg name "${ASSET_FILE}" '.[] | select(.name == $name) | .id' | head -1)
+
+      if [ -n "$EXISTING_ASSET_ID" ] && [ "$EXISTING_ASSET_ID" != "null" ]; then
+        echo "Replacing existing release asset ${ASSET_FILE}..."
+        curl -sf -X DELETE \
+          -H "Authorization: token ${GITHUB_PAT}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/${{ parameters.githubOrg }}/${{ parameters.githubRepo }}/releases/assets/${EXISTING_ASSET_ID}"
+      fi
+
+      curl -sf \
+        -H "Authorization: token ${GITHUB_PAT}" \
+        -H "Content-Type: application/gzip" \
+        --data-binary @"${ARCHIVE_PATH}" \
+        "https://uploads.github.com/repos/${{ parameters.githubOrg }}/${{ parameters.githubRepo }}/releases/${RELEASE_ID}/assets?name=${ASSET_FILE}"
+
+      echo "Upload complete."
+    displayName: 'Attach tar.gz to GitHub Release'
+    env:
+      GITHUB_PAT: $(GITHUB_PAT)
+      RELEASE_TAG: $(releaseTag)

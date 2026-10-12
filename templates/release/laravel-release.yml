@@ -1,0 +1,97 @@
+# ============================================================
+# templates/release/laravel-release.yml
+# Release pipeline: attach build tar.gz to GitHub Release, then
+# rolling-deploy production VirtualMachine Environment resources.
+# ============================================================
+
+parameters:
+
+  - name: appName
+    type: string
+
+  - name: githubOrg
+    type: string
+    default: 'BellevueCollege'
+
+  - name: githubRepo
+    type: string
+
+  - name: productionEnvironments
+    type: object
+    default: []
+
+  - name: serverAppRoot
+    type: string
+  - name: serverPublicRoot
+    type: string
+  - name: serverTempRoot
+    type: string
+  - name: serverBackupPath
+    type: string
+
+  - name: cacheRoutes
+    type: boolean
+    default: true
+  - name: runMigrations
+    type: boolean
+    default: false
+
+  - name: maxParallel
+    type: number
+    default: 1
+
+variables:
+  releaseTag: $[ replace(variables['resources.pipeline.ci.sourceBranch'], 'refs/tags/', '') ]
+
+stages:
+
+  - stage: AttachRelease
+    displayName: 'Attach to GitHub Release'
+    jobs:
+      - job: UploadAsset
+        displayName: 'Upload tar.gz to GitHub Release'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - download: ci
+            artifact: '${{ parameters.appName }}'
+            displayName: 'Download CI artifact'
+
+          - template: ../steps/upload-laravel-release-asset.yml
+            parameters:
+              appName: ${{ parameters.appName }}
+              githubOrg: ${{ parameters.githubOrg }}
+              githubRepo: ${{ parameters.githubRepo }}
+              artifactFolder: '$(Pipeline.Workspace)/ci/${{ parameters.appName }}'
+
+  - ${{ each prodEnv in parameters.productionEnvironments }}:
+    - stage: DeployProd_${{ prodEnv.name }}
+      displayName: ${{ prodEnv.displayName }}
+      dependsOn: AttachRelease
+      jobs:
+        - deployment: ${{ prodEnv.name }}
+          displayName: Deploy
+          environment:
+            name: ${{ prodEnv.environment }}
+            resourceType: VirtualMachine
+          variables:
+            - group: ${{ prodEnv.variableGroup }}
+          strategy:
+            rolling:
+              maxParallel: ${{ parameters.maxParallel }}
+              deploy:
+                steps:
+                  - download: none
+                  - download: ci
+                    artifact: '${{ parameters.appName }}'
+                    displayName: 'Download CI artifact'
+                  - template: ../steps/deploy-laravel.yml
+                    parameters:
+                      appName: ${{ parameters.appName }}
+                      serverAppRoot: ${{ parameters.serverAppRoot }}
+                      serverPublicRoot: ${{ parameters.serverPublicRoot }}
+                      serverTempRoot: ${{ parameters.serverTempRoot }}
+                      serverBackupPath: ${{ parameters.serverBackupPath }}
+                      cacheRoutes: ${{ parameters.cacheRoutes }}
+                      runMigrations: ${{ parameters.runMigrations }}
+                      artifactFolder: '$(Pipeline.Workspace)/ci/${{ parameters.appName }}'

@@ -1,0 +1,76 @@
+# ============================================================
+# templates/steps/build-laravel.yml
+# PHP, Composer, Node, NPM install, and production asset build.
+# ============================================================
+
+parameters:
+  - name: phpVersion
+    type: string
+    default: '8.3'
+  - name: nodeVersion
+    type: string
+    default: '24.x'
+  - name: npmVersion
+    type: string
+    default: '11.16.0'
+  - name: runComposer
+    type: boolean
+    default: true
+  - name: runNpm
+    type: boolean
+    default: true
+  - name: npmScript
+    type: string
+    default: 'production'
+
+steps:
+
+  - script: |
+      sudo update-alternatives --set php /usr/bin/php${{ parameters.phpVersion }}
+      sudo update-alternatives --set phar /usr/bin/phar${{ parameters.phpVersion }}
+      sudo update-alternatives --set phpdbg /usr/bin/phpdbg${{ parameters.phpVersion }}
+      sudo update-alternatives --set php-cgi /usr/bin/php-cgi${{ parameters.phpVersion }}
+      sudo update-alternatives --set phar.phar /usr/bin/phar.phar${{ parameters.phpVersion }}
+      php -version
+    displayName: 'Use PHP ${{ parameters.phpVersion }}'
+
+  - ${{ if parameters.runComposer }}:
+    - task: Cache@2
+      inputs:
+        key: 'composer | "$(Agent.OS)" | composer.lock'
+        restoreKeys: |
+          composer | "$(Agent.OS)"
+          composer
+        path: $(COMPOSER_CACHE_DIR)
+      displayName: 'Cache Composer'
+
+    - script: composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
+      displayName: 'Composer Install'
+
+  - ${{ if parameters.runNpm }}:
+    - task: UseNode@1
+      inputs:
+        version: '${{ parameters.nodeVersion }}'
+      displayName: 'Install Node.js ${{ parameters.nodeVersion }}'
+
+    - script: npm install -g npm@${{ parameters.npmVersion }}
+      displayName: 'Update NPM to ${{ parameters.npmVersion }}'
+
+    - task: Cache@2
+      inputs:
+        key: 'npm | "$(Agent.OS)" | package-lock.json'
+        restoreKeys: |
+          npm | "$(Agent.OS)"
+        path: $(npm_config_cache)
+      displayName: 'Cache NPM'
+
+    - task: Npm@1
+      inputs:
+        command: 'ci'
+      displayName: 'NPM Install'
+
+    - task: Npm@1
+      inputs:
+        command: 'custom'
+        customCommand: 'run ${{ parameters.npmScript }}'
+      displayName: 'NPM Run ${{ parameters.npmScript }}'

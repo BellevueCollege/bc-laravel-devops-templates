@@ -1,0 +1,88 @@
+# ============================================================
+# templates/steps/prepare-deploy-config.yml
+# Extracts token templates from the build archive, replaces tokens
+# in Agent.TempDirectory only (never published).
+# Runs on Linux VM deployment agents.
+# ============================================================
+
+parameters:
+  - name: appName
+    type: string
+  - name: artifactFolder
+    type: string
+
+steps:
+
+  - script: |
+      set -Eeuo pipefail
+
+      ARTIFACT_FOLDER="${{ parameters.artifactFolder }}"
+      APP_NAME="${{ parameters.appName }}"
+      CONFIG_ROOT="${AGENT_TEMPDIRECTORY}/laravel-deploy-config"
+      EXTRACT_ROOT="${AGENT_TEMPDIRECTORY}/laravel-deploy-extract"
+
+      rm -rf "$CONFIG_ROOT" "$EXTRACT_ROOT"
+      mkdir -p "$CONFIG_ROOT/public" "$EXTRACT_ROOT"
+
+      ARCHIVE_PATH="$(find "$ARTIFACT_FOLDER" -maxdepth 1 -type f -name "${APP_NAME}_*.tar.gz" | head -1)"
+      if [ -z "$ARCHIVE_PATH" ]; then
+        echo "ERROR: No archive matching ${APP_NAME}_*.tar.gz in ${ARTIFACT_FOLDER}"
+        ls -la "$ARTIFACT_FOLDER" || true
+        exit 1
+      fi
+
+      echo "Using archive: ${ARCHIVE_PATH}"
+
+      tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT" .env.azuredevops public/index.php.azuredevops
+
+      if [ ! -f "${EXTRACT_ROOT}/.env.azuredevops" ]; then
+        echo "ERROR: .env.azuredevops not found in archive"
+        exit 1
+      fi
+
+      if [ ! -f "${EXTRACT_ROOT}/public/index.php.azuredevops" ]; then
+        echo "ERROR: public/index.php.azuredevops not found in archive"
+        exit 1
+      fi
+
+      cp "${EXTRACT_ROOT}/.env.azuredevops" "${CONFIG_ROOT}/.env"
+      cp "${EXTRACT_ROOT}/public/index.php.azuredevops" "${CONFIG_ROOT}/public/index.php"
+
+      echo "##vso[task.setvariable variable=laravelDeployConfigDir]${CONFIG_ROOT}"
+      echo "##vso[task.setvariable variable=laravelDeployArchivePath]${ARCHIVE_PATH}"
+    displayName: 'Extract config templates from archive'
+
+  - task: replacetokens@6
+    inputs:
+      rootDirectory: '$(laravelDeployConfigDir)'
+      sources: |
+        .env
+        public/index.php
+      tokenPattern: 'custom'
+      tokenPrefix: '#{'
+      tokenSuffix: '}#'
+      addBOM: false
+    displayName: 'Replace tokens in deploy config'
+
+  - script: |
+      set -Eeuo pipefail
+
+      CONFIG_ROOT="$(laravelDeployConfigDir)"
+      LEFTOVER_TOKENS=""
+
+      for CONFIG_FILE in "${CONFIG_ROOT}/.env" "${CONFIG_ROOT}/public/index.php"; do
+        while IFS= read -r TOKEN_NAME; do
+          if [ -n "$TOKEN_NAME" ]; then
+            LEFTOVER_TOKENS="${LEFTOVER_TOKENS}${TOKEN_NAME}"$'\n'
+          fi
+        done < <(grep -oE '#\{[^}]+\}#' "$CONFIG_FILE" | sed -E 's/^#\{//; s/\}#$//' || true)
+      done
+
+      if [ -n "$LEFTOVER_TOKENS" ]; then
+        UNIQUE_TOKENS="$(printf '%s' "$LEFTOVER_TOKENS" | sort -u | paste -sd ', ' -)"
+        echo "ERROR: Replace Tokens left placeholders: ${UNIQUE_TOKENS}"
+        exit 1
+      fi
+
+      echo "Deploy config token check passed."
+    displayName: 'Verify no leftover tokens'
