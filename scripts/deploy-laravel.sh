@@ -264,6 +264,10 @@ run_post_swap_artisan() {
   fi
 
   php artisan config:cache
+
+  # Non-secret runtime check — catches Library/token mismatches before queue:restart.
+  php artisan tinker --execute="echo 'cache.default=' . config('cache.default') . PHP_EOL . 'queue.default=' . config('queue.default') . PHP_EOL . 'session.driver=' . config('session.driver') . PHP_EOL . 'db.host=' . config('database.connections.mysql.host') . PHP_EOL . 'db.database=' . config('database.connections.mysql.database') . PHP_EOL;"
+
   php artisan event:cache
   php artisan view:cache
 
