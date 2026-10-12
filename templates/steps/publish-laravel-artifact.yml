@@ -22,6 +22,9 @@ steps:
         !/.env
         !bootstrap/cache/*.php
         !azure-pipelines*.yml
+        # CopyFiles ** skips dotfiles — deploy token templates must be explicit.
+        .env.azuredevops
+        public/index.php.azuredevops
       TargetFolder: '$(Build.ArtifactStagingDirectory)/stage'
     displayName: 'Stage Application Files'
 
@@ -32,7 +35,11 @@ steps:
         echo "ERROR: .env.azuredevops missing from staged files"
         exit 1
       fi
-      echo ".env.azuredevops present in stage"
+      if [ ! -f "$STAGE/public/index.php.azuredevops" ]; then
+        echo "ERROR: public/index.php.azuredevops missing from staged files"
+        exit 1
+      fi
+      echo "Deploy config templates present in stage"
     displayName: 'Verify env template in stage'
 
   - script: |

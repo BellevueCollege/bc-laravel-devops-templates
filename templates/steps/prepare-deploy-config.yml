@@ -33,20 +33,28 @@ steps:
 
       echo "Using archive: ${ARCHIVE_PATH}"
 
-      tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT" .env.azuredevops public/index.php.azuredevops
+      ENV_MEMBER="$(tar -tzf "$ARCHIVE_PATH" | grep -E '(^|/)\.env\.azuredevops$' | head -1 || true)"
+      INDEX_MEMBER="$(tar -tzf "$ARCHIVE_PATH" | grep -E 'index\.php\.azuredevops$' | head -1 || true)"
 
-      if [ ! -f "${EXTRACT_ROOT}/.env.azuredevops" ]; then
-        echo "ERROR: .env.azuredevops not found in archive"
+      if [ -z "$ENV_MEMBER" ] || [ -z "$INDEX_MEMBER" ]; then
+        echo "ERROR: Deploy config templates missing from archive. Listing archive:"
+        tar -tzf "$ARCHIVE_PATH" | grep -E 'azuredevops|index\.php' || tar -tzf "$ARCHIVE_PATH" | head -50
         exit 1
       fi
 
-      if [ ! -f "${EXTRACT_ROOT}/public/index.php.azuredevops" ]; then
-        echo "ERROR: public/index.php.azuredevops not found in archive"
+      tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT" "$ENV_MEMBER" "$INDEX_MEMBER"
+
+      ENV_SOURCE="$(find "$EXTRACT_ROOT" -name '.env.azuredevops' -type f | head -1)"
+      INDEX_SOURCE="$(find "$EXTRACT_ROOT" -name 'index.php.azuredevops' -type f | head -1)"
+
+      if [ -z "$ENV_SOURCE" ] || [ -z "$INDEX_SOURCE" ]; then
+        echo "ERROR: Extracted deploy config templates not found under ${EXTRACT_ROOT}"
+        find "$EXTRACT_ROOT" -maxdepth 3 -type f || true
         exit 1
       fi
 
-      cp "${EXTRACT_ROOT}/.env.azuredevops" "${CONFIG_ROOT}/.env"
-      cp "${EXTRACT_ROOT}/public/index.php.azuredevops" "${CONFIG_ROOT}/public/index.php"
+      cp "$ENV_SOURCE" "${CONFIG_ROOT}/.env"
+      cp "$INDEX_SOURCE" "${CONFIG_ROOT}/public/index.php"
 
       echo "##vso[task.setvariable variable=laravelDeployConfigDir]${CONFIG_ROOT}"
       echo "##vso[task.setvariable variable=laravelDeployArchivePath]${ARCHIVE_PATH}"
