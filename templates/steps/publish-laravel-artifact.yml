@@ -10,37 +10,49 @@ parameters:
 
 steps:
 
-  - task: CopyFiles@2
-    inputs:
-      SourceFolder: '$(Build.SourcesDirectory)'
-      Contents: |
-        **
-        !.git/**
-        !.gitignore
-        !.gitattributes
-        !node_modules/**
-        !/.env
-        !bootstrap/cache/*.php
-        !azure-pipelines*.yml
-        # CopyFiles ** skips dotfiles — deploy token templates must be explicit.
-        .env.azuredevops
-        public/index.php.azuredevops
-      TargetFolder: '$(Build.ArtifactStagingDirectory)/stage'
+  # CopyFiles@2 ** omits dotfiles and is easy to misconfigure; rsync stages the full tree reliably.
+  - script: |
+      set -euo pipefail
+
+      SOURCE="$(Build.SourcesDirectory)"
+      STAGE="$(Build.ArtifactStagingDirectory)/stage"
+
+      rm -rf "$STAGE"
+      mkdir -p "$STAGE"
+
+      rsync -a \
+        --exclude '.git/' \
+        --exclude 'node_modules/' \
+        --exclude '.env' \
+        --exclude 'bootstrap/cache/*.php' \
+        --exclude 'azure-pipelines.yml' \
+        --exclude 'azure-pipelines-release.yml' \
+        "${SOURCE}/" "${STAGE}/"
+
+      echo "Staged application tree under ${STAGE}"
     displayName: 'Stage Application Files'
 
   - script: |
-      set -e
+      set -euo pipefail
+
       STAGE="$(Build.ArtifactStagingDirectory)/stage"
-      if [ ! -f "$STAGE/.env.azuredevops" ]; then
-        echo "ERROR: .env.azuredevops missing from staged files"
-        exit 1
-      fi
-      if [ ! -f "$STAGE/public/index.php.azuredevops" ]; then
-        echo "ERROR: public/index.php.azuredevops missing from staged files"
-        exit 1
-      fi
-      echo "Deploy config templates present in stage"
-    displayName: 'Verify env template in stage'
+
+      for REQUIRED_PATH in \
+        artisan \
+        vendor/autoload.php \
+        .env.azuredevops \
+        public/index.php \
+        public/index.php.azuredevops
+      do
+        if [ ! -e "${STAGE}/${REQUIRED_PATH}" ]; then
+          echo "ERROR: Missing required deploy file: ${REQUIRED_PATH}"
+          ls -la "$STAGE" || true
+          exit 1
+        fi
+      done
+
+      echo "Deploy archive prerequisites present in stage"
+    displayName: 'Verify staged deploy files'
 
   - script: |
       set -e

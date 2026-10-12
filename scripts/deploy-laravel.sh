@@ -89,10 +89,12 @@ validate_archive() {
   fi
 
   if ! tar -tzf "$ARCHIVE_PATH" | grep -Eq '(^|/)artisan$'; then
-    fail_with_message "Archive must contain artisan at the root"
+    echo "Archive members (first 40):"
+    tar -tzf "$ARCHIVE_PATH" | head -40 || true
+    fail_with_message "Archive must contain artisan at the application root"
   fi
 
-  if ! tar -tzf "$ARCHIVE_PATH" | grep -q 'public/index.php'; then
+  if ! tar -tzf "$ARCHIVE_PATH" | grep -Eq 'public/index\.php$'; then
     fail_with_message "Archive must contain public/index.php"
   fi
 }
