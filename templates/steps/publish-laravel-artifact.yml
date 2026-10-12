@@ -22,6 +22,8 @@ steps:
 
       rsync -a \
         --exclude '.git/' \
+        --exclude '.cursor/' \
+        --exclude '.vscode/' \
         --exclude 'node_modules/' \
         --exclude '.env' \
         --exclude 'bootstrap/cache/*.php' \
