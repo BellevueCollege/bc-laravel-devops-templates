@@ -73,6 +73,13 @@ validate_paths() {
   assert_absolute_path "serverBackupPath" "$SERVER_BACKUP_PATH"
 }
 
+# List archive members once. Avoids tar|grep under pipefail: when grep exits
+# early on a match, tar gets SIGPIPE and the pipeline falsely fails.
+archive_contains_member() {
+  local pattern="$1"
+  printf '%s\n' "${ARCHIVE_MEMBER_LIST}" | grep -Eq "$pattern"
+}
+
 validate_archive() {
   log_phase "Validate archive"
   echo "Build ID: ${BUILD_ID}"
@@ -88,13 +95,17 @@ validate_archive() {
     fail_with_message "Archive is not readable or is corrupt"
   fi
 
-  if ! tar -tzf "$ARCHIVE_PATH" | grep -Eq '(^|/)artisan$'; then
+  ARCHIVE_MEMBER_LIST="$(tar -tzf "$ARCHIVE_PATH")"
+
+  if ! archive_contains_member '(^|/)artisan$'; then
+    echo "Archive members matching artisan / public/index.php:"
+    printf '%s\n' "${ARCHIVE_MEMBER_LIST}" | grep -E 'artisan|public/index\.php' || true
     echo "Archive members (first 40):"
-    tar -tzf "$ARCHIVE_PATH" | head -40 || true
+    printf '%s\n' "${ARCHIVE_MEMBER_LIST}" | head -40 || true
     fail_with_message "Archive must contain artisan at the application root"
   fi
 
-  if ! tar -tzf "$ARCHIVE_PATH" | grep -Eq 'public/index\.php$'; then
+  if ! archive_contains_member 'public/index\.php$'; then
     fail_with_message "Archive must contain public/index.php"
   fi
 }
