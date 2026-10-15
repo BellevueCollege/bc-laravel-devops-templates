@@ -6,7 +6,7 @@
 #
 # Usage: deploy-laravel.sh APP_NAME SERVER_APP_ROOT SERVER_PUBLIC_ROOT
 #        SERVER_TEMP_ROOT SERVER_BACKUP_PATH ARCHIVE_PATH ENV_FILE INDEX_FILE
-#        CACHE_ROUTES RUN_MIGRATIONS
+#        CACHE_ROUTES RUN_MIGRATIONS CACHE_BOOTSTRAP
 #
 # BUILD_ID is parsed from ARCHIVE_PATH (${APP_NAME}_<buildId>.tar.gz).
 
@@ -24,6 +24,7 @@ ENV_FILE="${7:?env file path required}"
 INDEX_FILE="${8:?index file path required}"
 CACHE_ROUTES="${9:-true}"
 RUN_MIGRATIONS="${10:-false}"
+CACHE_BOOTSTRAP="${11:-true}"
 
 ARCHIVE_BASENAME="$(basename "$ARCHIVE_PATH")"
 BUILD_ID="${ARCHIVE_BASENAME#${APP_NAME}_}"
@@ -130,10 +131,21 @@ preserve_live_storage() {
 
   log_phase "Preserve storage from live app"
   mkdir -p "$EXTRACT_DIR/storage"
+  # Framework paths are recreated on the target VM (deploy user + www-data group).
+  # Preserving them copies root/www-data ownership and breaks PHP session/view writes.
+  local framework_exclude=(
+    --exclude 'framework/sessions/'
+    --exclude 'framework/views/'
+    --exclude 'framework/cache/'
+  )
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a "${SERVER_APP_ROOT}/storage/" "${EXTRACT_DIR}/storage/"
+    rsync -a "${framework_exclude[@]}" "${SERVER_APP_ROOT}/storage/" "${EXTRACT_DIR}/storage/"
   else
     cp -a "${SERVER_APP_ROOT}/storage/." "${EXTRACT_DIR}/storage/"
+    rm -rf \
+      "${EXTRACT_DIR}/storage/framework/sessions" \
+      "${EXTRACT_DIR}/storage/framework/views" \
+      "${EXTRACT_DIR}/storage/framework/cache"
   fi
 }
 
@@ -195,20 +207,51 @@ backup_live_directories() {
   fi
 }
 
-ensure_runtime_writable_directories() {
-  log_phase "Ensure storage and bootstrap/cache are writable"
+apply_group_writable_tree() {
+  local web_group="${LARAVEL_WEB_GROUP:-www-data}"
+  local path
+
+  for path in "$@"; do
+    if [[ ! -e "$path" ]]; then
+      continue
+    fi
+
+    if id -nG "$(whoami)" | tr ' ' '\n' | grep -qx "$web_group"; then
+      chgrp -R "$web_group" "$path" 2>/dev/null || true
+    else
+      echo "WARNING: $(whoami) is not in group ${web_group}; PHP-FPM may not write under ${path}."
+      echo "WARNING: Add the deployment agent user to ${web_group} on the VM (one-time host setup, no sudo in deploy)."
+    fi
+
+    find "$path" -type d -exec chmod ug+rwX {} + 2>/dev/null || true
+    find "$path" -type f -exec chmod ug+rw {} + 2>/dev/null || true
+    find "$path" -type d -exec chmod g+s {} + 2>/dev/null || true
+  done
+}
+
+normalize_runtime_permissions() {
+  log_phase "Normalize storage and bootstrap/cache for deploy user and PHP-FPM"
   local app_root="$SERVER_APP_ROOT"
+  local framework_root="${app_root}/storage/framework"
+
+  mkdir -p "${app_root}/storage/logs" "${app_root}/bootstrap/cache"
+
+  rm -rf \
+    "${framework_root}/sessions" \
+    "${framework_root}/views" \
+    "${framework_root}/cache"
 
   mkdir -p \
-    "${app_root}/storage/framework/cache/data" \
-    "${app_root}/storage/framework/sessions" \
-    "${app_root}/storage/framework/views" \
+    "${framework_root}/sessions" \
+    "${framework_root}/views" \
+    "${framework_root}/cache/data"
+
+  apply_group_writable_tree \
+    "${framework_root}/sessions" \
+    "${framework_root}/views" \
+    "${framework_root}/cache" \
     "${app_root}/storage/logs" \
     "${app_root}/bootstrap/cache"
-
-  # Deploy agent and PHP-FPM (www-data) must both write here; group perms help when umask allows.
-  chmod -R u+rwX,g+rwX "${app_root}/storage" "${app_root}/bootstrap/cache" 2>/dev/null \
-    || chmod -R u+rwX "${app_root}/storage" "${app_root}/bootstrap/cache"
 }
 
 swap_app_directory() {
@@ -269,7 +312,11 @@ swap_public_directory() {
 }
 
 clear_bootstrap_cache() {
-  log_phase "Clear bootstrap cache before caching"
+  if [[ "$CACHE_BOOTSTRAP" == "true" ]] || [[ "$CACHE_BOOTSTRAP" == "True" ]]; then
+    log_phase "Clear bootstrap cache before caching"
+  else
+    log_phase "Clear bootstrap cache (deploy will read .env on each request)"
+  fi
   rm -f "${SERVER_APP_ROOT}/bootstrap/cache/"*.php
 }
 
@@ -281,20 +328,24 @@ run_post_swap_artisan() {
     php artisan migrate --force
   fi
 
-  php artisan config:cache
+  if [[ "$CACHE_BOOTSTRAP" == "true" ]] || [[ "$CACHE_BOOTSTRAP" == "True" ]]; then
+    php artisan config:cache
+    php artisan event:cache
+    php artisan view:cache
 
-  # Non-secret runtime check — catches Library/token mismatches before queue:restart.
-  # Use the configured default connection (mysql for idlookup, da/sqlsrv for data-api, etc.).
-  php artisan tinker --execute="\$connection = config('database.default'); echo 'app.env=' . config('app.env') . PHP_EOL . 'cache.default=' . config('cache.default') . PHP_EOL . 'queue.default=' . config('queue.default') . PHP_EOL . 'session.driver=' . config('session.driver') . PHP_EOL . 'db.connection=' . \$connection . PHP_EOL . 'db.driver=' . config('database.connections.' . \$connection . '.driver') . PHP_EOL . 'db.host=' . config('database.connections.' . \$connection . '.host') . PHP_EOL . 'db.database=' . config('database.connections.' . \$connection . '.database') . PHP_EOL;"
-
-  php artisan event:cache
-  php artisan view:cache
-
-  if [[ "$CACHE_ROUTES" == "true" ]] || [[ "$CACHE_ROUTES" == "True" ]]; then
-    php artisan route:cache
+    if [[ "$CACHE_ROUTES" == "true" ]] || [[ "$CACHE_ROUTES" == "True" ]]; then
+      php artisan route:cache
+    fi
+  else
+    echo "Skipping config/event/view/route cache so .env changes apply without artisan optimize:clear"
   fi
 
+  # Non-secret runtime check — catches Library/token mismatches before queue:restart.
+  php artisan tinker --execute="\$connection = config('database.default'); echo 'app.env=' . config('app.env') . PHP_EOL . 'cache.default=' . config('cache.default') . PHP_EOL . 'queue.default=' . config('queue.default') . PHP_EOL . 'session.driver=' . config('session.driver') . PHP_EOL . 'db.connection=' . \$connection . PHP_EOL . 'db.driver=' . config('database.connections.' . \$connection . '.driver') . PHP_EOL . 'db.host=' . config('database.connections.' . \$connection . '.host') . PHP_EOL . 'db.database=' . config('database.connections.' . \$connection . '.database') . PHP_EOL;"
+
   php artisan queue:restart
+
+  normalize_runtime_permissions
 }
 
 restore_from_backup() {
@@ -402,7 +453,7 @@ main() {
   validate_php_before_swap
   backup_live_directories
   swap_app_directory
-  ensure_runtime_writable_directories
+  normalize_runtime_permissions
   run_artisan_down
   swap_public_directory
   clear_bootstrap_cache

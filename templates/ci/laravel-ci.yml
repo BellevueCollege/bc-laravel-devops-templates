@@ -53,6 +53,9 @@ parameters:
   - name: cacheRoutes
     type: boolean
     default: true
+  - name: cacheBootstrapOnDeploy
+    type: boolean
+    default: false
   - name: runMigrations
     type: boolean
     default: false
@@ -160,5 +163,6 @@ stages:
                       serverTempRoot: ${{ parameters.serverTempRoot }}
                       serverBackupPath: ${{ parameters.serverBackupPath }}
                       cacheRoutes: ${{ parameters.cacheRoutes }}
+                      cacheBootstrapOnDeploy: ${{ parameters.cacheBootstrapOnDeploy }}
                       runMigrations: ${{ parameters.runMigrations }}
                       artifactFolder: '$(Pipeline.Workspace)/${{ parameters.appName }}'

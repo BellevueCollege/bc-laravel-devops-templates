@@ -17,6 +17,9 @@ parameters:
     type: string
   - name: cacheRoutes
     type: boolean
+  - name: cacheBootstrapOnDeploy
+    type: boolean
+    default: true
   - name: runMigrations
     type: boolean
   - name: artifactFolder
@@ -56,6 +59,7 @@ steps:
 
       CACHE_ROUTES="${{ parameters.cacheRoutes }}"
       RUN_MIGRATIONS="${{ parameters.runMigrations }}"
+      CACHE_BOOTSTRAP="${{ parameters.cacheBootstrapOnDeploy }}"
 
       "$DEPLOY_SCRIPT" \
         "${{ parameters.appName }}" \
@@ -67,5 +71,6 @@ steps:
         "${CONFIG_DIR}/.env" \
         "${CONFIG_DIR}/public/index.php" \
         "$CACHE_ROUTES" \
-        "$RUN_MIGRATIONS"
+        "$RUN_MIGRATIONS" \
+        "$CACHE_BOOTSTRAP"
     displayName: 'Run local deploy script'

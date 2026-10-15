@@ -102,6 +102,7 @@ Release deploy downloads the **CI pipeline artifact** (`download: ci`), not the 
 |---|---|---|
 | `runMigrations` | `false` | Set `true` to run `php artisan migrate --force` (see rolling caveat above) |
 | `cacheRoutes` | `true` | Set `false` if the app uses closure routes |
+| `cacheBootstrapOnDeploy` | `false` (CI test deploy) | When `false`, skips `config:cache`, `event:cache`, and `view:cache` so manual `.env` edits on the test VM apply without `optimize:clear`. Release template defaults to `true`. |
 | `npmScript` | `production` | Laravel Mix / Vite production script |
 | `runNpm` | `true` | Set `false` if no front-end build |
 | `maxParallel` | `1` | VMs updated concurrently in a rolling batch |
@@ -169,8 +170,9 @@ bc-laravel-devops-templates/
 | Deploy cannot checkout templates | VM agent cannot reach GitHub; check network / service connection |
 | `php not found` | PHP not on the **deployment agent** user’s PATH |
 | Apache cannot read files | Agent umask/ACLs; check `getfacl` and group membership |
-| `tempnam(): file created in the system's temporary directory` | `storage/framework/views` (or parent) not writable by PHP; fix `storage/` + `bootstrap/cache` group perms (`apachetest-www` + `www-data`) |
-| `cache:clear` permission errors | Mixed ownership under `storage/` and `bootstrap/cache`; same group/ACL fix as above |
+| `tempnam(): file created in the system's temporary directory` | `storage/framework/views` not writable by PHP-FPM; agent user must be in the web server group (e.g. `www-data`) |
+| Session / `file_put_contents` permission denied under `storage/` | Deployment agent not in `www-data` (or `LARAVEL_WEB_GROUP`); deploy recreates `framework/{sessions,views,cache}` but cannot fix root-owned trees |
+| `cache:clear` permission errors | Mixed ownership under preserved `storage/` paths; same group membership fix as above |
 | `mv` created nested directory | Missing `mv -T` (use current template script) |
 | Tokens left in `.env` | Variable group missing a `#{token}#` name |
 | Release deploy wrong archive | Must use `download: ci`, not GitHub asset |
@@ -198,6 +200,7 @@ Library groups **IDLookup Test** and **IDLookup Prod**; Environments **ApacheTes
 | `public/index.php.azuredevops` | Include maintenance bootstrap |
 | Library groups | One group per deploy stage; Build job has none |
 | Template checkout | Each VM agent can clone this repo |
+| VM deploy agent | Member of the web server group (e.g. `www-data`); **no sudo**. Deploy sets group-writable `storage/framework/{sessions,views,cache}` and `bootstrap/cache` (setgid dirs). |
 
 Copy [examples/data-api-azure-pipelines.yml](examples/data-api-azure-pipelines.yml) for an API-only app without a front-end build.
 
