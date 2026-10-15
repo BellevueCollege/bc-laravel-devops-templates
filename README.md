@@ -169,6 +169,8 @@ bc-laravel-devops-templates/
 | Deploy cannot checkout templates | VM agent cannot reach GitHub; check network / service connection |
 | `php not found` | PHP not on the **deployment agent** user’s PATH |
 | Apache cannot read files | Agent umask/ACLs; check `getfacl` and group membership |
+| `tempnam(): file created in the system's temporary directory` | `storage/framework/views` (or parent) not writable by PHP; fix `storage/` + `bootstrap/cache` group perms (`apachetest-www` + `www-data`) |
+| `cache:clear` permission errors | Mixed ownership under `storage/` and `bootstrap/cache`; same group/ACL fix as above |
 | `mv` created nested directory | Missing `mv -T` (use current template script) |
 | Tokens left in `.env` | Variable group missing a `#{token}#` name |
 | Release deploy wrong archive | Must use `download: ci`, not GitHub asset |

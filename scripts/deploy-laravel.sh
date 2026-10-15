@@ -195,6 +195,22 @@ backup_live_directories() {
   fi
 }
 
+ensure_runtime_writable_directories() {
+  log_phase "Ensure storage and bootstrap/cache are writable"
+  local app_root="$SERVER_APP_ROOT"
+
+  mkdir -p \
+    "${app_root}/storage/framework/cache/data" \
+    "${app_root}/storage/framework/sessions" \
+    "${app_root}/storage/framework/views" \
+    "${app_root}/storage/logs" \
+    "${app_root}/bootstrap/cache"
+
+  # Deploy agent and PHP-FPM (www-data) must both write here; group perms help when umask allows.
+  chmod -R u+rwX,g+rwX "${app_root}/storage" "${app_root}/bootstrap/cache" 2>/dev/null \
+    || chmod -R u+rwX "${app_root}/storage" "${app_root}/bootstrap/cache"
+}
+
 swap_app_directory() {
   log_phase "Swap app directory"
   SWAP_STARTED=true
@@ -241,6 +257,8 @@ swap_public_directory() {
   fi
 
   if [[ -d "$SERVER_PUBLIC_ROOT" ]]; then
+    # Move the live docroot aside (not delete) so the new tree can take SERVER_PUBLIC_ROOT
+    # in one rename; rollback can restore this folder if post-swap steps fail.
     echo "Moving live public aside to ${aside_dir}"
     mv -T "$SERVER_PUBLIC_ROOT" "$aside_dir"
   fi
@@ -266,7 +284,8 @@ run_post_swap_artisan() {
   php artisan config:cache
 
   # Non-secret runtime check — catches Library/token mismatches before queue:restart.
-  php artisan tinker --execute="echo 'cache.default=' . config('cache.default') . PHP_EOL . 'queue.default=' . config('queue.default') . PHP_EOL . 'session.driver=' . config('session.driver') . PHP_EOL . 'db.host=' . config('database.connections.mysql.host') . PHP_EOL . 'db.database=' . config('database.connections.mysql.database') . PHP_EOL;"
+  # Use the configured default connection (mysql for idlookup, da/sqlsrv for data-api, etc.).
+  php artisan tinker --execute="\$connection = config('database.default'); echo 'app.env=' . config('app.env') . PHP_EOL . 'cache.default=' . config('cache.default') . PHP_EOL . 'queue.default=' . config('queue.default') . PHP_EOL . 'session.driver=' . config('session.driver') . PHP_EOL . 'db.connection=' . \$connection . PHP_EOL . 'db.driver=' . config('database.connections.' . \$connection . '.driver') . PHP_EOL . 'db.host=' . config('database.connections.' . \$connection . '.host') . PHP_EOL . 'db.database=' . config('database.connections.' . \$connection . '.database') . PHP_EOL;"
 
   php artisan event:cache
   php artisan view:cache
@@ -341,6 +360,23 @@ prune_old_backups() {
   done
 }
 
+remove_public_aside_directory() {
+  local aside_dir="$1"
+
+  if [[ ! -d "$aside_dir" ]]; then
+    return 0
+  fi
+
+  if rm -rf "$aside_dir"; then
+    echo "Removed public aside directory ${aside_dir}"
+    return 0
+  fi
+
+  echo "WARNING: Could not remove public aside ${aside_dir} (often Apache-owned files under the old docroot)."
+  echo "WARNING: Deploy succeeded; remove the aside directory manually or fix ACLs on the parent path."
+  return 0
+}
+
 cleanup_success() {
   log_phase "Post-success cleanup"
   rm -rf "$EXTRACT_DIR"
@@ -349,7 +385,7 @@ cleanup_success() {
   local aside_dir
   public_parent="$(dirname "$SERVER_PUBLIC_ROOT")"
   aside_dir="${public_parent}/${APP_NAME}_${BUILD_ID}_public_aside"
-  rm -rf "$aside_dir"
+  remove_public_aside_directory "$aside_dir"
 
   echo "Archive retained at ${ARCHIVE_PATH}"
   echo "Deploy completed at $(date -u +"%Y-%m-%dT%H:%M:%SZ") for build ${BUILD_ID}"
@@ -366,6 +402,7 @@ main() {
   validate_php_before_swap
   backup_live_directories
   swap_app_directory
+  ensure_runtime_writable_directories
   run_artisan_down
   swap_public_directory
   clear_bootstrap_cache
