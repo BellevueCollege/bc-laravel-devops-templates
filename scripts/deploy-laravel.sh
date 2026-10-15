@@ -143,15 +143,15 @@ apply_deploy_config_files() {
   if [[ ! -f "$ENV_FILE" ]]; then
     fail_with_message "Filled .env file missing at ${ENV_FILE}"
   fi
-  if grep -q '#{' "$ENV_FILE"; then
-    fail_with_message "Filled .env still contains token placeholders"
+  if grep -qE '#\{[^}]+\}#' "$ENV_FILE"; then
+    fail_with_message "Filled .env still contains token placeholders: $(grep -oE '#\{[^}]+\}#' "$ENV_FILE" | sort -u | paste -sd ', ' -)"
   fi
 
   if [[ ! -f "$INDEX_FILE" ]]; then
     fail_with_message "Filled index.php missing at ${INDEX_FILE}"
   fi
-  if grep -q '#{' "$INDEX_FILE"; then
-    fail_with_message "Filled index.php still contains token placeholders"
+  if grep -qE '#\{[^}]+\}#' "$INDEX_FILE"; then
+    fail_with_message "Filled index.php still contains token placeholders: $(grep -oE '#\{[^}]+\}#' "$INDEX_FILE" | sort -u | paste -sd ', ' -)"
   fi
 
   cp "$ENV_FILE" "${EXTRACT_DIR}/.env"
