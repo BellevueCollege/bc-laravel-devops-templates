@@ -16,11 +16,10 @@ trigger:
       - azure-pipelines-release.yml
 
 pr:
+  drafts: false
   branches:
     include:
-      - trunk
-      - hotfix-*
-      - release-*
+      - '*'
 
 resources:
   repositories:
@@ -34,6 +33,9 @@ extends:
   template: templates/ci/laravel-ci.yml@templates
   parameters:
     appName: 'data-api'
+
+    runTests: true
+    # Copy testSetupSteps and testSteps from data-api/azure-pipelines.yml (Sail + PHPUnit).
 
     phpVersion: '8.3'
     runNpm: false

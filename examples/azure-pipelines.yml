@@ -16,11 +16,10 @@ trigger:
       - azure-pipelines-release.yml
 
 pr:
+  drafts: false
   branches:
     include:
-      - trunk
-      - release-*
-      - hotfix-*
+      - '*'
 
 resources:
   repositories:

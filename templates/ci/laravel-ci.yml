@@ -3,9 +3,11 @@
 # CI pipeline template for Laravel applications.
 #
 # Stages:
-#   Build         — hosted ubuntu-latest, no variable groups
-#   DeployTest_*  — one stage per testEnvironments (PR or trunk)
-#                   rolling deploy to VirtualMachine Environment resources
+#   Test        — first when runTests: true
+#   Build       — after Test when runTests; otherwise runs first
+#   DeployTest_* — one stage per testEnvironments (trunk push or PR targeting trunk/hotfix/release)
+#                  rolling deploy to VirtualMachine Environment resources
+#                  Skipped when Test or Build fails (succeeded() on deploy condition).
 # ============================================================
 
 parameters:
@@ -60,14 +62,52 @@ parameters:
     type: number
     default: 1
 
+  # ── Testing (optional) ───────────────────────────────────
+  - name: runTests
+    type: boolean
+    default: false
+  - name: testSetupSteps
+    type: stepList
+    default: []
+  - name: testSteps
+    type: stepList
+    default: []
+  - name: testJobTimeoutInMinutes
+    type: number
+    default: 120
+  - name: testVariableGroups
+    type: object
+    default: []
+
 variables:
   npm_config_cache: $(Pipeline.Workspace)/.npm
   COMPOSER_CACHE_DIR: $(Pipeline.Workspace)/.composer
 
 stages:
 
+  - ${{ if parameters.runTests }}:
+    - stage: Test
+      displayName: 'Test'
+      jobs:
+        - job: RunTests
+          displayName: 'Run Tests'
+          timeoutInMinutes: ${{ parameters.testJobTimeoutInMinutes }}
+          pool:
+            vmImage: ubuntu-latest
+          ${{ if gt(length(parameters.testVariableGroups), 0) }}:
+            variables:
+              - ${{ each variableGroup in parameters.testVariableGroups }}:
+                - group: "${{ variableGroup }}"
+          steps:
+            - ${{ each step in parameters.testSetupSteps }}:
+              - ${{ step }}
+            - ${{ each step in parameters.testSteps }}:
+              - ${{ step }}
+
   - stage: Build
     displayName: 'Build'
+    ${{ if parameters.runTests }}:
+      dependsOn: Test
     jobs:
       - job: BuildApp
         displayName: 'Build Application'
@@ -94,7 +134,7 @@ stages:
     - stage: DeployTest_${{ testEnv.name }}
       displayName: "${{ testEnv.displayName }}"
       dependsOn: Build
-      condition: or(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/trunk'))
+      condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/trunk'), and(eq(variables['Build.Reason'], 'PullRequest'), or(eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/trunk'), startsWith(variables['System.PullRequest.TargetBranch'], 'refs/heads/hotfix-'), startsWith(variables['System.PullRequest.TargetBranch'], 'refs/heads/release-')))))
       jobs:
         - deployment: ${{ testEnv.name }}
           displayName: Deploy

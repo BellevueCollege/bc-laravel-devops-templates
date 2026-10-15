@@ -105,8 +105,20 @@ Release deploy downloads the **CI pipeline artifact** (`download: ci`), not the 
 | `npmScript` | `production` | Laravel Mix / Vite production script |
 | `runNpm` | `true` | Set `false` if no front-end build |
 | `maxParallel` | `1` | VMs updated concurrently in a rolling batch |
+| `runTests` | `false` | When `true`, runs optional **Test** stage before **Build** |
+| `testSetupSteps` / `testSteps` | `[]` | Repo-specific Sail, PHPUnit, etc. (Test job does not reuse the Build artifact) |
+| `testJobTimeoutInMinutes` | `120` | Test job timeout (hosted default is 60) |
+| `testVariableGroups` | `[]` | Library groups attached to the Test job only |
 
 Do not put server paths in Library groups. Lock secret tokens in the Library (`app.key`, API keys, OAuth secrets, etc.).
+
+### Automated testing (optional)
+
+Disabled by default. Enable with `runTests: true`, then define `testSetupSteps` and `testSteps`. When enabled, **Test** runs before **Build**; **Build** is skipped if Test fails. Deploy stages use `succeeded()` and only run on **push to `trunk`** or **pull requests targeting** `trunk`, `hotfix-*`, or `release-*` (feature→feature PRs still run Test/Build but do not deploy to test Apache). Leave `runTests: false` (idlookup) for Build-only CI.
+
+**CI triggers:** use `pr.branches.include: ['*']` so Test/Build run on every PR; deploy gating above limits Apache test rolls.
+
+**data-api — Sail example:** see [examples/data-api-azure-pipelines.yml](examples/data-api-azure-pipelines.yml) for `runTests: true` with inlined Sail steps.
 
 ---
 
@@ -175,7 +187,8 @@ Library groups **IDLookup Test** and **IDLookup Prod**; Environments **ApacheTes
 
 | Check | Notes |
 |---|---|
-| Default branch | `trunk` (CI test deploy runs on PR and `refs/heads/trunk`) |
+| Default branch | `trunk` (test deploy on push to `trunk` or PRs targeting `trunk` / `hotfix-*` / `release-*`) |
+| PR CI | `pr.branches.include: ['*']` — all PRs run Build (and Test when `runTests: true`) |
 | Environments | VM resources registered; `environment:` matches ADO name |
 | `runNpm` | `false` when there is no `package.json` |
 | `cacheRoutes` | `false` when the app uses closure routes |
@@ -230,7 +243,7 @@ Each row is a Library variable name (must match exactly). Lock values that are s
 | `azure.tenant.id` | |
 | `azure.redirect.uri` | |
 | `broadcast.driver` | |
-| `cache.driver` | |
+| `cache.driver` | (sets `CACHE_STORE` and `CACHE_DRIVER`) |
 | `session.driver` | |
 | `session.lifetime` | |
 | `queue.driver` | |
