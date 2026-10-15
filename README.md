@@ -114,7 +114,7 @@ Do not put server paths in Library groups. Lock secret tokens in the Library (`a
 
 ### Automated testing (optional)
 
-Disabled by default. Enable with `runTests: true`, then define `testSetupSteps` and `testSteps`. When enabled, **Test** runs before **Build**; **Build** is skipped if Test fails. Deploy stages use `succeeded()` and only run on **push to `trunk`** or **pull requests targeting** `trunk`, `hotfix-*`, or `release-*` (feature→feature PRs still run Test/Build but do not deploy to test Apache). Leave `runTests: false` (idlookup) for Build-only CI.
+Disabled by default. Enable with `runTests: true`, then define `testSetupSteps` and `testSteps`. When enabled, **Test** runs before **Build**; **Build** is skipped if Test fails. Deploy stages use `succeeded()` and run on **any pull request** or **push to `trunk`** (same as WordPress CI templates). Leave `runTests: false` (idlookup) for Build-only CI.
 
 **CI triggers:** use `pr.branches.include: ['*']` so Test/Build run on every PR; deploy gating above limits Apache test rolls.
 
@@ -187,7 +187,7 @@ Library groups **IDLookup Test** and **IDLookup Prod**; Environments **ApacheTes
 
 | Check | Notes |
 |---|---|
-| Default branch | `trunk` (test deploy on push to `trunk` or PRs targeting `trunk` / `hotfix-*` / `release-*`) |
+| Default branch | `trunk` (test deploy on any PR or push to `trunk`) |
 | PR CI | `pr.branches.include: ['*']` — all PRs run Build (and Test when `runTests: true`) |
 | Environments | VM resources registered; `environment:` matches ADO name |
 | `runNpm` | `false` when there is no `package.json` |

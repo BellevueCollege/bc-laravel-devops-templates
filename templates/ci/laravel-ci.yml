@@ -5,7 +5,7 @@
 # Stages:
 #   Test        — first when runTests: true
 #   Build       — after Test when runTests; otherwise runs first
-#   DeployTest_* — one stage per testEnvironments (trunk push or PR targeting trunk/hotfix/release)
+#   DeployTest_* — any PR or push to trunk (same gating as WordPress CI templates)
 #                  rolling deploy to VirtualMachine Environment resources
 #                  Skipped when Test or Build fails (succeeded() on deploy condition).
 # ============================================================
@@ -134,7 +134,7 @@ stages:
     - stage: DeployTest_${{ testEnv.name }}
       displayName: "${{ testEnv.displayName }}"
       dependsOn: Build
-      condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/trunk'), and(eq(variables['Build.Reason'], 'PullRequest'), or(eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/trunk'), startsWith(variables['System.PullRequest.TargetBranch'], 'refs/heads/hotfix-'), startsWith(variables['System.PullRequest.TargetBranch'], 'refs/heads/release-')))))
+      condition: and(succeeded(), or(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/trunk')))
       jobs:
         - deployment: ${{ testEnv.name }}
           displayName: Deploy
